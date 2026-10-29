@@ -1,0 +1,46 @@
+# Defaults for every run. Stage configs inherit with `base: default.yaml`.
+paths:
+  data_dir: data
+  results_dir: results
+
+data:
+  test_size: 10000       # fixed across seeds
+  reference_size: 5000   # fixed across seeds; DOMIAS only
+  val_fraction: 0.25     # val size = max(val_fraction * n, min_val_size)
+  min_val_size: 200
+  n_bins: 10
+  n_bins_small: 5        # used when n <= small_n_threshold
+  small_n_threshold: 1000
+
+structure:
+  max_indegree: 3
+  n_random_dags: 5
+
+model:
+  dim: 64
+  n_heads: 4
+  n_layers: 3
+  dropout: 0.1
+
+train:
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 128
+  max_epochs: 500
+  patience: 20
+  # Selected on validation NLL per variant (hyperparameters picked on seed 0, reused).
+  hparam_grid:
+    lr: [1.0e-3, 3.0e-4]
+    weight_decay: [0.0, 1.0e-2]
+    dropout: [0.1, 0.3]
+
+scsa:
+  gate_hidden: 16
+  aux_weight: 0.1        # lambda for the per-component auxiliary NLL
+
+eval:
+  support_buckets: [0, 1, 5, 20]   # zero / low / medium / high; fixed, do not tune
+  n_mi_targets: 100                # members and non-members each
+  fpr: 0.01
+  tstr_target:
+    adult: income

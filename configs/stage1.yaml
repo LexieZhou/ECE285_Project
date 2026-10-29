@@ -1,0 +1,13 @@
+# Stage 1 (RQ1-2): full prefix vs learned BN vs degree-matched random DAGs vs true DAG.
+base: default.yaml
+stage: stage1
+
+grid:
+  seeds: [0, 1, 2, 3, 4]
+  variants: [marginal, full_prefix, bn, random_dag_0, random_dag_1, random_dag_2,
+             random_dag_3, random_dag_4, bn_cpt, bn_hdp]
+  datasets:
+    adult: {n: [500, 1000, 5000, full]}
+    child: {n: [500, 1000, 5000], extra_variants: [true_dag, full_prefix_trueorder]}
+    insurance: {n: [500, 1000, 5000], extra_variants: [true_dag, full_prefix_trueorder]}
+    alarm: {n: [500, 1000, 5000], extra_variants: [true_dag, full_prefix_trueorder]}

@@ -1,0 +1,13 @@
+# Stage 3 (RQ4): SCSA, its ablations, and the non-likelihood baselines.
+base: default.yaml
+stage: stage3
+
+grid:
+  seeds: [0, 1, 2, 3, 4]
+  variants: [scsa, scsa_const_gate, scsa_two_comp, scsa_hard_backoff, scsa_no_loo,
+             smote, tvae]
+  datasets:
+    adult: {n: [500, 1000, 5000, full]}
+    child: {n: [500, 1000, 5000]}
+    insurance: {n: [500, 1000, 5000]}
+    alarm: {n: [500, 1000, 5000]}

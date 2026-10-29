@@ -1,0 +1,13 @@
+# Tiny end-to-end check: one dataset, one n, one seed, few epochs.
+base: default.yaml
+stage: smoke
+
+train:
+  max_epochs: 5
+  hparam_grid: null
+
+grid:
+  seeds: [0]
+  variants: [marginal, full_prefix, bn]
+  datasets:
+    adult: {n: [500]}

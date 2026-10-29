@@ -4,7 +4,7 @@ paths:
   results_dir: results
 
 data:
-  test_size: 10000       # fixed across seeds
+  test_size: 10000       # fixed across seeds; bnlearn only (Adult uses the official adult.test)
   reference_size: 5000   # fixed across seeds; DOMIAS only
   val_fraction: 0.25     # val size = max(val_fraction * n, min_val_size)
   min_val_size: 200

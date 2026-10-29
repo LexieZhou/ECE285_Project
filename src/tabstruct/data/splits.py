@@ -36,6 +36,10 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
     train and a disjoint val set of size max(val_fraction * n, min_val_size) are drawn
     from the remaining pool with `seed`. The discretizer is fit on train only.
 
+    Adult uses the official `adult.test` (16,281 rows) as its test set, ignoring
+    cfg.data.test_size, so results are comparable with the literature; the reference
+    set and the pool come from the official `adult.data`.
+
     For a fixed seed, smaller training sets are prefixes of larger ones, so NLL-vs-n
     curves compare nested subsets.
     """
@@ -46,9 +50,10 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
 
     if dataset == "adult":
         raw = adult.load_adult(cfg["paths"]["data_dir"])
-        perm = np.random.default_rng(SPLIT_SEED).permutation(len(raw))
-        test, reference = raw.iloc[perm[:n_test]], raw.iloc[perm[n_test:n_fixed]]
-        pool = raw.iloc[perm[n_fixed:]]
+        official_train, test = raw.iloc[: adult.N_OFFICIAL_TRAIN], raw.iloc[adult.N_OFFICIAL_TRAIN :]
+        n_ref = data_cfg["reference_size"]
+        perm = np.random.default_rng(SPLIT_SEED).permutation(len(official_train))
+        reference, pool = official_train.iloc[perm[:n_ref]], official_train.iloc[perm[n_ref:]]
         if n is None:
             fraction = data_cfg["val_fraction"]
             val_size = round(len(pool) * fraction / (1 + fraction))

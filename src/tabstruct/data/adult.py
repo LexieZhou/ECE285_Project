@@ -2,6 +2,9 @@
 
 Returns the raw table only: drops `fnlwgt`, keeps `?` as its own category. Binning of
 numerical columns lives in `discretize.py` and is fit on the training split.
+
+Rows keep the ucimlrepo order: the first `N_OFFICIAL_TRAIN` rows are `adult.data`, the
+rest are the official `adult.test` (16,281 rows).
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 TARGET = "income"
+N_OFFICIAL_TRAIN = 32561
 NUMERICAL = ["age", "education-num", "capital-gain", "capital-loss", "hours-per-week"]
 CATEGORICAL = [
     "workclass",
@@ -40,6 +44,10 @@ def load_adult(cache_dir: str | Path) -> pd.DataFrame:
     df = pd.concat([raw.features, raw.targets], axis=1).drop(columns="fnlwgt")
     for col in CATEGORICAL:
         df[col] = df[col].fillna("?").astype(str).str.strip()
+    # Official test labels end in '.'; check they are exactly the tail before stripping it.
+    is_test = df[TARGET].str.endswith(".").to_numpy()
+    if is_test[:N_OFFICIAL_TRAIN].any() or not is_test[N_OFFICIAL_TRAIN:].all():
+        raise ValueError("adult: official test rows are not the tail of the ucimlrepo table")
     df[TARGET] = df[TARGET].str.rstrip(".")
     df = df[NUMERICAL + CATEGORICAL].reset_index(drop=True)
 

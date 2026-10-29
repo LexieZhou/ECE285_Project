@@ -38,8 +38,12 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 
 ### 0.2 Datasets
 - [x] **Adult** (UCI, ~48k rows): load via `ucimlrepo` (id=2). Drop `fnlwgt`; treat `?` as
-      its own category. Hold out a fixed **test set (10k rows)** and a fixed
+      its own category. Hold out a fixed **test set** and a fixed
       **reference set (5k rows)** for DOMIAS, never used for training.
+      *Protocol change (2026-10-29):* the Adult test set is the **official `adult.test`
+      (16,281 rows)** instead of a random 10k from all 48,842 rows, so test metrics (e.g.
+      TSTR) line up with the literature. Reference (5k) and the train/val pool (27,561)
+      are drawn from the official `adult.data` (32,561). bnlearn keeps test 10k.
 - [x] Training subsets `n ∈ {500, 1k, 5k, full}` drawn per seed from the remaining pool;
       validation set of size `max(0.25n, 200)` drawn disjointly from the same pool.
       For a fixed seed, smaller train sets are prefixes of larger ones (nested).

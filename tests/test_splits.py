@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tabstruct.data.adult import N_OFFICIAL_TRAIN
 from tabstruct.data.splits import SPLIT_SEED, make_splits
 from tabstruct.utils import load_config
 
@@ -28,8 +29,13 @@ def assert_codes_in_range(splits):
 def test_adult_sizes_disjoint_and_fixed_held_out():
     s0 = make_splits("adult", 500, seed=0, cfg=CFG)
     s1 = make_splits("adult", 500, seed=1, cfg=CFG)
-    assert (len(s0.train), len(s0.val), len(s0.test), len(s0.reference)) == (500, 200, 10000, 5000)
+    assert (len(s0.train), len(s0.val), len(s0.test), len(s0.reference)) == (500, 200, 16281, 5000)
     assert len(s0.columns) == 14
+
+    # Test is exactly the official adult.test; everything else comes from adult.data.
+    assert list(s0.test.index) == list(range(N_OFFICIAL_TRAIN, 48842))
+    for df in (s0.train, s0.val, s0.reference):
+        assert (df.index < N_OFFICIAL_TRAIN).all()
 
     sets = index_sets(s0)
     for i in range(4):

@@ -16,4 +16,8 @@ def build_attention_mask(parents: list[list[int]]) -> torch.Tensor:
     `parents[j]` and to itself. Note: PyTorch attention modules use True = *blocked*, so
     invert before passing this to them.
     """
-    raise NotImplementedError
+    d = len(parents)
+    mask = torch.eye(2 * d, dtype=torch.bool)
+    for j, pa in enumerate(parents):
+        mask[d + j, pa] = True
+    return mask

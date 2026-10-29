@@ -84,13 +84,13 @@ at every layer (CaTs-style). Recommended design, two token streams:
 Why not let content tokens attend to their own parents? Then query j would see the
 ancestors of its parents, so the model would no longer be `p(x_j | x_{pa(j)})`.
 
-- [ ] `masks.py`: build `(2d × 2d)` boolean masks from a `parents` list (full prefix,
+- [x] `masks.py`: build `(2d × 2d)` boolean masks from a `parents` list (full prefix,
       BN, random, empty/marginal).
-- [ ] `masked_transformer.py`: forward returns per-column log-probs `[B, d]`.
-- [ ] **Unit test (must pass before any experiment):** perturb `x_m` for every
+- [x] `masked_transformer.py`: forward returns per-column log-probs `[B, d]`.
+- [x] **Unit test (must pass before any experiment):** perturb `x_m` for every
       `m ∉ C(j)` and assert the logits for column j are unchanged (to 1e-6); perturb
       some `m ∈ C(j)` and assert they change (for a randomly initialized net).
-- [ ] Ancestral sampler: generate columns in order, one query at a time.
+- [x] Ancestral sampler: generate columns in order, one query at a time.
 
 ### 0.6 Training loop and NLL
 - [ ] Loss = mean over rows of `Σ_j −log p(x_j | x_C(j))` (nats/row). AdamW,

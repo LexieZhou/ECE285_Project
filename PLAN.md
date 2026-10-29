@@ -37,23 +37,30 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 - [x] Global seeding helper `tabstruct.utils.set_seed` (`numpy`, `torch`, `random`).
 
 ### 0.2 Datasets
-- [ ] **Adult** (UCI, ~48k rows): load via `ucimlrepo` (id=2). Drop `fnlwgt`; treat `?` as
+- [x] **Adult** (UCI, ~48k rows): load via `ucimlrepo` (id=2). Drop `fnlwgt`; treat `?` as
       its own category. Hold out a fixed **test set (10k rows)** and a fixed
       **reference set (5k rows)** for DOMIAS, never used for training.
-- [ ] Training subsets `n ∈ {500, 1k, 5k, full}` drawn per seed from the remaining pool;
+- [x] Training subsets `n ∈ {500, 1k, 5k, full}` drawn per seed from the remaining pool;
       validation set of size `max(0.25n, 200)` drawn disjointly from the same pool.
-- [ ] **bnlearn networks** CHILD (20 nodes), INSURANCE (27), ALARM (37): load with
-      `pgmpy.utils.get_example_model(...)`, sample train/val/test/reference with
+      For a fixed seed, smaller train sets are prefixes of larger ones (nested).
+- [x] **bnlearn networks** CHILD (20 nodes), INSURANCE (27), ALARM (37): load with
+      `pgmpy.example_models.load_model("bnlearn/<name>")`, sample train/val/test/reference with
       forward sampling. Sizes `n ∈ {500, 1k, 5k}`; test 10k, reference 5k.
 - [ ] For bnlearn, compute the **ground-truth test NLL** under the true BN; report
       every model's *excess NLL* over it (great sanity check and lower bound).
+      `bnlearn.true_log_likelihood` is done; reporting it happens in `fit_and_evaluate`.
 
 ### 0.3 Discretization and schema
-- [ ] Quantile-bin numerical columns using **training split only** (default K = 10,
+- [x] Quantile-bin numerical columns using **training split only** (default K = 10,
       reduce to K = 5 for n ≤ 1k; record the choice in config).
-- [ ] Categorical vocabularies come from the known schema (all categories), so
+- [x] Categorical vocabularies come from the known schema (all categories), so
       test-time categories never go out of vocabulary. Bin edges extend to ±∞.
-- [ ] Output: integer-coded DataFrame + `schema` (column names, cardinalities, types).
+- [x] Output: integer-coded DataFrames + column names and cardinalities (`DataSplits`).
+- [ ] **Open question (decide before Stage 1 figures):** Adult bin edges depend on the
+      training split and K changes between n ≤ 1k and n > 1k, so Adult test NLL is not
+      comparable across seeds/n in absolute terms. Paired comparisons within a
+      (dataset, n, seed) are unaffected. Options: fixed K for all n, or report NLL
+      relative to the `marginal` variant.
 
 ### 0.4 Structures
 - [ ] **Column order:** for each (dataset, n, seed), the generation order is a

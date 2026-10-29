@@ -11,3 +11,10 @@ def test_degree_matched():
         assert g.order == bn.order
         assert g.in_degrees() == bn.in_degrees()
         g.validate()
+
+
+def test_random_dags_differ_across_seeds_and_are_reproducible():
+    bn = Graph(order=list(range(8)), parents=[[]] + [[j - 1] for j in range(1, 8)], name="bn")
+    draws = [degree_matched_random_dag(bn, np.random.default_rng(s)).parents for s in range(5)]
+    assert len({str(p) for p in draws}) > 1
+    assert degree_matched_random_dag(bn, np.random.default_rng(3)).parents == draws[3]

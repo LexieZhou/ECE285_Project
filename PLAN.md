@@ -70,14 +70,20 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 - [ ] **Column order:** for each (dataset, n, seed), the generation order is a
       topological order of the learned BN. Full-prefix and random DAGs use the **same**
       order, so only the conditioning sets differ.
-- [ ] **Learned BN:** `pgmpy` `HillClimbSearch` + `BicScore`, `max_indegree=3`, fit on
-      the training split only.
-- [ ] **Degree-matched random DAGs (≥5):** for column at position j with BN in-degree
+      `learn_bn` returns a topological order (ties broken by column index) and random
+      DAGs copy it; sharing it across variants happens in `train.build_graph`.
+- [x] **Learned BN:** `pgmpy` `HillClimbSearch` + `BicScore`, `max_indegree=3`, fit on
+      the training split only. Uses `pgmpy.causal_discovery.HillClimbSearch` with
+      `scoring_method="bic-d"` (the `pgmpy.estimators` version is deprecated in 1.1).
+      Sanity check, seed 0: CHILD n=1k recovers 22/25 true skeleton edges, ALARM n=5k
+      41/46; each fit takes a few seconds or less.
+- [x] **Degree-matched random DAGs (≥5):** for column at position j with BN in-degree
       k_j, sample k_j parents uniformly from positions `< j`. Same in-degree
       per column by construction.
 - [ ] **True DAG (bnlearn only):** uses its own topological order. Also run
       full-prefix under that order as its matched control (order confound).
-- [ ] Represent every graph as `parents: list[list[int]]` in position space.
+      `graph_from_dag` converts the true edges; mapping node names happens in `build_graph`.
+- [x] Represent every graph as `parents: list[list[int]]` in position space.
 
 ### 0.5 Masked Transformer backbone (capacity-controlled)
 The key requirement: the prediction for column j must depend **only** on `x_{C(j)}`,

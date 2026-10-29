@@ -8,9 +8,9 @@ __pycache__/
 build/
 dist/
 
-# Data and experiment outputs
-data/
-results/
+# Data and experiment outputs (anchored, so src/tabstruct/data/ is still tracked)
+/data/
+/results/
 *.pt
 *.ckpt
 wandb/

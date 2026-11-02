@@ -9,11 +9,25 @@ import pandas as pd
 SUPPORT_BUCKETS = {"zero": 0, "low": 1, "medium": 5, "high": 20}
 
 
-def summarize_nll(per_column_nll: np.ndarray) -> dict[str, float]:
-    """per_column_nll [N, d] -> {'nll': nats/row, 'nll_col_<j>': mean per column}."""
-    raise NotImplementedError
+def summarize_nll(per_column_nll: np.ndarray, columns: list[str]) -> dict[str, object]:
+    """per_column_nll [N, d] in position order, `columns` the names in that order ->
+    {'nll': nats/row, 'per_column': {name: mean NLL}}.
+
+    Per-column values are keyed by name because positions differ across seeds.
+    """
+    return {
+        "nll": float(per_column_nll.sum(axis=1).mean()),
+        "per_column": dict(zip(columns, per_column_nll.mean(axis=0).tolist())),
+    }
 
 
 def bucket_nll(per_column_nll: np.ndarray, support: np.ndarray) -> pd.DataFrame:
     """Mean NLL and cell count per support bucket; both inputs [N, d]."""
-    raise NotImplementedError
+    edges = list(SUPPORT_BUCKETS.values())
+    bucket = np.digitize(support.ravel(), edges[1:])  # 0 = zero, ..., 3 = high
+    nll = per_column_nll.ravel()
+    rows = []
+    for i, name in enumerate(SUPPORT_BUCKETS):
+        cells = nll[bucket == i]
+        rows.append({"bucket": name, "nll": cells.mean() if len(cells) else np.nan, "count": len(cells)})
+    return pd.DataFrame(rows)

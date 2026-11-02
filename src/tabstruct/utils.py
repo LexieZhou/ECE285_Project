@@ -20,6 +20,15 @@ def set_seed(seed: int) -> np.random.Generator:
     return np.random.default_rng(seed)
 
 
+def resolve_device(name: str) -> torch.device:
+    """`auto` picks cuda if available, else cpu; `cuda` or `cpu` are used as given."""
+    if name == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if name not in ("cuda", "cpu"):
+        raise ValueError(f"train.device must be auto, cuda or cpu, got {name!r}")
+    return torch.device(name)
+
+
 def deep_update(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge `override` into a copy of `base`."""
     out = dict(base)

@@ -50,9 +50,9 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 - [x] **bnlearn networks** CHILD (20 nodes), INSURANCE (27), ALARM (37): load with
       `pgmpy.example_models.load_model("bnlearn/<name>")`, sample train/val/test/reference with
       forward sampling. Sizes `n ∈ {500, 1k, 5k}`; test 10k, reference 5k.
-- [ ] For bnlearn, compute the **ground-truth test NLL** under the true BN; report
+- [x] For bnlearn, compute the **ground-truth test NLL** under the true BN; report
       every model's *excess NLL* over it (great sanity check and lower bound).
-      `bnlearn.true_log_likelihood` is done; reporting it happens in `fit_and_evaluate`.
+      `metrics.json` has `true_nll_test` and `excess_nll_test` (CHILD test: 12.17 nats/row).
 
 ### 0.3 Discretization and schema
 - [x] Quantile-bin numerical columns using **training split only** (default K = 10,
@@ -67,11 +67,12 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
       relative to the `marginal` variant.
 
 ### 0.4 Structures
-- [ ] **Column order:** for each (dataset, n, seed), the generation order is a
+- [x] **Column order:** for each (dataset, n, seed), the generation order is a
       topological order of the learned BN. Full-prefix and random DAGs use the **same**
       order, so only the conditioning sets differ.
-      `learn_bn` returns a topological order (ties broken by column index) and random
-      DAGs copy it; sharing it across variants happens in `train.build_graph`.
+      `train.build_graph` re-learns the BN (deterministic) in every run, so `marginal`,
+      `full_prefix`, `bn` and `random_dag_<k>` share its order. `random_dag_<k>` uses the
+      k-th spawned stream of the seed's RNG, so it depends only on (seed, k).
 - [x] **Learned BN:** `pgmpy` `HillClimbSearch` + `BicScore`, `max_indegree=3`, fit on
       the training split only. Uses `pgmpy.causal_discovery.HillClimbSearch` with
       `scoring_method="bic-d"` (the `pgmpy.estimators` version is deprecated in 1.1).
@@ -80,9 +81,9 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 - [x] **Degree-matched random DAGs (≥5):** for column at position j with BN in-degree
       k_j, sample k_j parents uniformly from positions `< j`. Same in-degree
       per column by construction.
-- [ ] **True DAG (bnlearn only):** uses its own topological order. Also run
+- [x] **True DAG (bnlearn only):** uses its own topological order. Also run
       full-prefix under that order as its matched control (order confound).
-      `graph_from_dag` converts the true edges; mapping node names happens in `build_graph`.
+      Variants `true_dag` and `full_prefix_trueorder` in `build_graph`.
 - [x] Represent every graph as `parents: list[list[int]]` in position space.
 
 ### 0.5 Masked Transformer backbone (capacity-controlled)
@@ -110,24 +111,44 @@ ancestors of its parents, so the model would no longer be `p(x_j | x_{pa(j)})`.
 - [x] Ancestral sampler: generate columns in order, one query at a time.
 
 ### 0.6 Training loop and NLL
-- [ ] Loss = mean over rows of `Σ_j −log p(x_j | x_C(j))` (nats/row). AdamW,
+- [x] Loss = mean over rows of `Σ_j −log p(x_j | x_C(j))` (nats/row). AdamW,
       early stopping on validation NLL (patience 20 epochs), keep best checkpoint.
-- [ ] Report held-out test NLL (nats/row) and per-column NLL `[N_test, d]` saved to
-      disk (Stage 2 needs it).
+- [x] Report held-out test NLL (nats/row) and per-column NLL `[N_test, d]` saved to
+      disk (Stage 2 needs it). `metrics.json` also has train/val NLL and per-column
+      test NLL keyed by column name (positions differ across seeds).
 - [ ] Hyperparameters: a **small shared grid** (lr ∈ {1e-3, 3e-4}, weight decay ∈
       {0, 1e-2}, dropout ∈ {0.1, 0.3}) selected on validation NLL **per variant**.
       This matters for RQ2: a well-regularized full-prefix model is the fair control
       for "is BN just a regularizer?".
+      *Implemented so far:* `fit_and_evaluate` trains every grid combination **inside each
+      run** and keeps the lowest validation NLL (train/val only, no leakage). The
+      `default.yaml` comment ("picked on seed 0, reused") is not implemented yet.
+      **Open decision:** per-run selection costs 8× (Adult-500 is ~20 s per combination
+      on one thread), so before Stage 1 either keep it, or select on seed 0 and reuse.
 
 ### 0.7 Run interface and results layout
-- [ ] One entry point: `python -m tabstruct.train --config configs/....yaml
+- [x] One entry point: `python -m tabstruct.train --config configs/....yaml
       --dataset adult --n 500 --variant bn --seed 0`.
-- [ ] Each run writes `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/` with
+- [x] Each run writes `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/` with
       `config.yaml`, `metrics.json`, `per_column_nll.npy`, `graph.json`, `samples.csv`.
-- [ ] `scripts/aggregate.py` collects all `metrics.json` into one `results/summary.csv`.
+      Neural variants only so far; baselines and SCSA raise `NotImplementedError`.
+- [x] `scripts/aggregate.py` collects all `metrics.json` into one `results/summary.csv`.
 
 **Phase 0 done when:** mask test passes; full-prefix on Adult-500 trains, early-stops,
 and reports a test NLL lower than the independent-marginals model.
+
+*Status (2026-11-02): met.* Default hyperparameters, seed 0, 1 seed only (no CI yet),
+test NLL in nats/row:
+
+| | marginal | full_prefix | bn |
+|---|---|---|---|
+| Adult n=500 | 14.99 | 11.72 | 12.28 |
+| CHILD n=500 (true BN 12.17) | 17.20 | 12.68 | 12.72 |
+
+Early stopping kicked in after 34–49 epochs. Adult test NLL is 0.3–0.45 nats/row above
+val NLL for every variant (val is drawn from `adult.data`, test is the official `adult.test`),
+which suggests a distribution shift between the two files; worth checking before
+comparing to the literature.
 
 ---
 

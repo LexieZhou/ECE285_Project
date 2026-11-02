@@ -189,7 +189,13 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
 - [ ] Grid: Adult × {500, 1k, 5k, full}; CHILD/INSURANCE/ALARM × {500, 1k, 5k};
       5 seeds each (seed changes the training subset, BN, random DAGs and init).
 - [ ] Classical baselines with likelihoods, on the same splits:
-  - [ ] BN with Laplace / BDeu-smoothed CPTs (pgmpy `BayesianEstimator`).
+  - [x] BN with Laplace / BDeu-smoothed CPTs (pgmpy `BayesianEstimator`).
+        `baselines/bn_cpt.py` counts CPTs with numpy (tested equal to pgmpy's
+        `BayesianEstimator` to 1e-10). Smoothing (BDeu ess ∈ {0.1, 1, 10, 100} or K2/Laplace)
+        is selected on val NLL in every run, since a fit takes milliseconds.
+        Seed 0, n=500: Adult 14.04 (neural `bn` 14.05), CHILD 12.71 (neural `bn` 12.72,
+        default hparams); CHILD n=5000: 12.28, excess 0.11. So the neural model with BN
+        masks matches counting on the same graph.
   - [ ] BN with HDP smoothing (Petitjean et al., 2018). Reference code is Java;
         if wrapping it is too costly, implement hierarchical back-off smoothing of
         each CPT row toward its parent-subset/marginal and document the substitution.
@@ -205,9 +211,10 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
 
 ## Phase 2 — Stage 2: support analysis, RQ3 (Nov 5 – Nov 8)
 
-- [ ] `support.py`: for each column j and conditioning set C(j), count training rows
+- [x] `support.py`: for each column j and conditioning set C(j), count training rows
       that match `x_{C(j)}` (hash tuples → counts). Training rows use leave-one-out
       counts (subtract 1). Unit-test against a brute-force count.
+      Full prefix on 22k rows × 37 columns takes ~3 s.
 - [ ] Buckets on `s_{j,1}` (support under **BN parents**, same buckets for every graph):
       zero (0), low (1–4), medium (5–19), high (≥20). Fix thresholds now; do not tune.
 - [ ] For every test row × column: assign bucket, then average per-column NLL per

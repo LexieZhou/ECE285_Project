@@ -35,6 +35,15 @@ train:
     weight_decay: [0.0, 1.0e-2]
     dropout: [0.1, 0.3]
 
+baselines:
+  bn_cpt:
+    smoothing_grid:      # selected per run on validation NLL; fitting takes milliseconds
+      - {prior: BDeu, equivalent_sample_size: 0.1}
+      - {prior: BDeu, equivalent_sample_size: 1.0}
+      - {prior: BDeu, equivalent_sample_size: 10.0}
+      - {prior: BDeu, equivalent_sample_size: 100.0}
+      - {prior: K2, equivalent_sample_size: 1.0}   # Laplace: +1 per cell
+
 scsa:
   gate_hidden: 16
   aux_weight: 0.1        # lambda for the per-component auxiliary NLL

@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from tabstruct.baselines.bn_cpt import BNCPTGenerator
 from tabstruct.data import DATASETS, bnlearn
 from tabstruct.data.splits import DataSplits, make_splits
 from tabstruct.eval.nll import summarize_nll
@@ -189,25 +190,20 @@ def train_model(
     }
 
 
-def fit_and_evaluate(
-    variant: str,
+def is_neural(variant: str) -> bool:
+    return variant in NEURAL_VARIANTS or RANDOM_DAG.fullmatch(variant) is not None
+
+
+def fit_neural(
     splits: DataSplits,
     graph: Graph,
     cfg: dict[str, Any],
-    out: Path,
     seed: int,
-    candidates: list[dict[str, float]] | None = None,
-) -> dict[str, Any]:
-    """Train (early stopping on splits.val), sample, compute metrics, write artifacts to `out`.
-
-    Every hyperparameter combination in `candidates` (default: `hparam_configs(cfg)`) is
-    trained and the one with the lowest validation NLL is kept (train and val data only).
-    """
-    if variant not in NEURAL_VARIANTS and not RANDOM_DAG.fullmatch(variant):
-        raise NotImplementedError(f"variant {variant!r} is not implemented yet")
-
+    candidates: list[dict[str, float]] | None,
+) -> tuple[dict[str, np.ndarray], pd.DataFrame, dict[str, Any]]:
+    """Masked Transformer: every combination in `candidates` (default:
+    `hparam_configs(cfg)`) is trained and the lowest validation NLL is kept."""
     order = graph.order
-    columns = [splits.columns[c] for c in order]
     cardinalities = [splits.cardinalities[c] for c in order]
     device = resolve_device(cfg["train"]["device"])
     x = {
@@ -226,28 +222,72 @@ def fit_and_evaluate(
     model, info, hparams = best
 
     nll = {split: per_column_nll(model, xs, attn_mask) for split, xs in x.items()}
-    np.save(out / "per_column_nll.npy", nll["test"])
-    test = summarize_nll(nll["test"], columns)
-
     samples = ancestral_sample(
         model, attn_mask, len(splits.train), torch.Generator(device).manual_seed(seed)
     ).cpu().numpy()
     samples_original = np.empty_like(samples)
     samples_original[:, order] = samples
-    pd.DataFrame(samples_original, columns=splits.columns).to_csv(out / "samples.csv", index=False)
-
-    metrics: dict[str, Any] = {
-        "variant": variant,
-        "n_train": len(splits.train),
-        "n_val": len(splits.val),
-        "n_test": len(splits.test),
-        "d": len(order),
+    info = {
         "n_params": sum(p.numel() for p in model.parameters()),
         "device": device.type,
         "hparams": hparams,
         "best_epoch": info["best_epoch"],
         "epochs": info["epochs"],
         "train_seconds": sum(s["train_seconds"] for s in search),
+    }
+    if len(search) > 1:
+        info["hparam_search"] = search
+    return nll, pd.DataFrame(samples_original, columns=splits.columns), info
+
+
+def fit_bn_cpt(
+    splits: DataSplits, graph: Graph, cfg: dict[str, Any], seed: int
+) -> tuple[dict[str, np.ndarray], pd.DataFrame, dict[str, Any]]:
+    """Smoothed-CPT BN on the learned graph; the smoothing in
+    cfg.baselines.bn_cpt.smoothing_grid is selected on validation NLL in every run
+    (fitting takes milliseconds)."""
+    search, best = [], None
+    for hparams in cfg["baselines"]["bn_cpt"]["smoothing_grid"]:
+        gen = BNCPTGenerator(graph, **hparams).fit(splits.train, splits.cardinalities)
+        nll_val = float(-gen.log_prob(splits.val).sum(1).mean())
+        search.append({**hparams, "nll_val": nll_val})
+        if best is None or nll_val < best[1]:
+            best = (gen, nll_val, hparams)
+    gen, _, hparams = best
+    nll = {split: -gen.log_prob(getattr(splits, split)) for split in ("train", "val", "test")}
+    info = {"n_params": gen.n_params(), "device": "cpu", "hparams": hparams, "hparam_search": search}
+    return nll, gen.sample(len(splits.train), seed), info
+
+
+def fit_and_evaluate(
+    variant: str,
+    splits: DataSplits,
+    graph: Graph,
+    cfg: dict[str, Any],
+    out: Path,
+    seed: int,
+    candidates: list[dict[str, float]] | None = None,
+) -> dict[str, Any]:
+    """Fit `variant` (model selection on splits.val only), sample, compute metrics and
+    write per_column_nll.npy and samples.csv to `out`. `candidates` are the neural
+    hyperparameters to try (see `fit_neural`)."""
+    if is_neural(variant):
+        nll, samples, info = fit_neural(splits, graph, cfg, seed, candidates)
+    elif variant == "bn_cpt":
+        nll, samples, info = fit_bn_cpt(splits, graph, cfg, seed)
+    else:
+        raise NotImplementedError(f"variant {variant!r} is not implemented yet")
+
+    np.save(out / "per_column_nll.npy", nll["test"])
+    samples.to_csv(out / "samples.csv", index=False)
+    test = summarize_nll(nll["test"], [splits.columns[c] for c in graph.order])
+    metrics: dict[str, Any] = {
+        "variant": variant,
+        "n_train": len(splits.train),
+        "n_val": len(splits.val),
+        "n_test": len(splits.test),
+        "d": len(graph.order),
+        **info,
         "nll_train": float(nll["train"].sum(1).mean()),
         "nll_val": float(nll["val"].sum(1).mean()),
         "nll_test": test["nll"],
@@ -259,8 +299,6 @@ def fit_and_evaluate(
         )
         metrics["true_nll_test"] = float(-true_log_p.mean())
         metrics["excess_nll_test"] = test["nll"] - metrics["true_nll_test"]
-    if len(search) > 1:
-        metrics["hparam_search"] = search
     return metrics
 
 
@@ -277,11 +315,14 @@ def main(argv: list[str] | None = None) -> None:
     graph = build_graph(args.variant, splits, cfg, rng)
     save_json(graph.to_dict(), out / "graph.json")
 
-    candidates, hparams_from = hparam_candidates(cfg, args.seed, out)
+    if is_neural(args.variant):
+        candidates, hparams_from = hparam_candidates(cfg, args.seed, out)
+    else:  # classical baselines are cheap and search in every run
+        candidates, hparams_from = None, "search"
     metrics = fit_and_evaluate(args.variant, splits, graph, cfg, out, args.seed, candidates)
     metrics["hparams_from"] = hparams_from
     save_json(metrics, out / "metrics.json")
-    print(f"{out}: test NLL {metrics['nll_test']:.4f} nats/row, best epoch {metrics['best_epoch']}")
+    print(f"{out}: test NLL {metrics['nll_test']:.4f} nats/row")
 
 
 if __name__ == "__main__":

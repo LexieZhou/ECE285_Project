@@ -114,9 +114,25 @@ def test_fit_and_evaluate_end_to_end(tmp_path):
 
 def test_unimplemented_variants_raise():
     splits = chain_splits()
-    graph = build_graph("bn_cpt", splits, CFG, np.random.default_rng(0))
+    graph = build_graph("bn_hdp", splits, CFG, np.random.default_rng(0))
     with pytest.raises(NotImplementedError):
-        fit_and_evaluate("bn_cpt", splits, graph, CFG, Path("unused"), seed=0)
+        fit_and_evaluate("bn_hdp", splits, graph, CFG, Path("unused"), seed=0)
+
+
+def test_bn_cpt_end_to_end(tmp_path):
+    splits = chain_splits()
+    graph = build_graph("bn_cpt", splits, CFG, np.random.default_rng(0))
+    metrics = fit_and_evaluate("bn_cpt", splits, graph, CFG, tmp_path, seed=0)
+
+    nll = np.load(tmp_path / "per_column_nll.npy")
+    assert nll.shape == (len(splits.test), 4)
+    assert np.isclose(nll.sum(1).mean(), metrics["nll_test"])
+    assert len(metrics["hparam_search"]) == len(CFG["baselines"]["bn_cpt"]["smoothing_grid"])
+    assert metrics["nll_val"] == min(h["nll_val"] for h in metrics["hparam_search"])
+    # True entropy of the chain is ~2.4 nats/row (marginal ~4.0); counts on 1k rows get close.
+    assert metrics["nll_test"] < 2.6
+    samples = pd.read_csv(tmp_path / "samples.csv")
+    assert list(samples.columns) == splits.columns and (samples["a"] == samples["b"]).mean() > 0.8
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")

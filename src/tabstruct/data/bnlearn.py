@@ -26,6 +26,15 @@ def sample_network(model, n: int, seed: int) -> pd.DataFrame:
     return df[list(model.nodes())].astype(str)
 
 
+def decode(model, codes: pd.DataFrame) -> pd.DataFrame:
+    """Integer codes (indices into `state_names`) -> state names, same columns."""
+    states = state_names(model)
+    return pd.DataFrame(
+        {col: np.asarray(states[col])[codes[col].to_numpy()] for col in codes.columns},
+        index=codes.index,
+    )
+
+
 def true_log_likelihood(model, df: pd.DataFrame) -> np.ndarray:
     """Per-row log p(x) under the true network, shape [N]. Gives the NLL lower bound."""
     log_p = np.zeros(len(df))

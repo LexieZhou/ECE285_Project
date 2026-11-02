@@ -1,5 +1,6 @@
 """Invariant 1 (CLAUDE.md): column j's prediction depends only on x_{C(j)}, at every layer."""
 
+import pytest
 import torch
 
 from tabstruct.models.masked_transformer import MaskedTabularTransformer
@@ -44,3 +45,24 @@ def test_log_prob_shape():
     log_p = model.log_prob(x, build_attention_mask(PARENTS))
     assert log_p.shape == (8, len(CARDS))
     assert (log_p <= 0).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_mask_invariance_and_log_prob_on_cuda():
+    torch.manual_seed(0)
+    model = MaskedTabularTransformer(CARDS, dim=16, n_heads=2, n_layers=3, dropout=0.0).eval()
+    mask = build_attention_mask(PARENTS)
+    x = torch.stack([torch.randint(0, c, (64,)) for c in CARDS], dim=1)
+    cpu = model.log_prob(x, mask)
+    model.cuda()
+    x, mask = x.cuda(), mask.cuda()
+    assert torch.allclose(model.log_prob(x, mask).cpu(), cpu, atol=1e-4)
+
+    base = model(x, mask)
+    for m, card in enumerate(CARDS):
+        x_perturbed = x.clone()
+        x_perturbed[:, m] = (x_perturbed[:, m] + 1) % card
+        out = model(x_perturbed, mask)
+        for j, pa in enumerate(PARENTS):
+            if m not in pa:
+                assert torch.allclose(out[j], base[j], atol=1e-5), (j, m)

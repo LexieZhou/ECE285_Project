@@ -1,6 +1,6 @@
 """Run every (dataset, n, variant, seed) in a stage config's `grid`.
 
-    python scripts/run_grid.py --config configs/stage1.yaml --jobs 8
+    python scripts/run_grid.py --config configs/stage1.yaml --jobs 4
     python scripts/run_grid.py --config configs/smoke.yaml --dry-run
 """
 
@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 import subprocess
 import sys
 
 from joblib import Parallel, delayed
 
-from tabstruct.utils import load_config
+from tabstruct.utils import load_config, resolve_device
 
 
 def grid_commands(config_path: str) -> list[list[str]]:
@@ -34,17 +35,27 @@ def grid_commands(config_path: str) -> list[list[str]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", required=True)
-    parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument(
+        "--jobs", type=int, default=None, help="parallel runs (default: 4 on a GPU, else 1)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="print commands only")
     args = parser.parse_args()
 
     commands = grid_commands(args.config)
+    if args.jobs is None:
+        # One run uses a small fraction of a GPU, so several share it.
+        device = resolve_device(load_config(args.config)["train"]["device"])
+        args.jobs = 1 if device.type == "cpu" else 4
     if args.dry_run:
         for cmd in commands:
             print(" ".join(cmd[1:]))
         print(f"{len(commands)} runs")
         return
-    codes = Parallel(n_jobs=args.jobs)(delayed(subprocess.call)(cmd) for cmd in commands)
+    # The models are tiny: one thread per run is as fast as many, and avoids oversubscription.
+    env = {**os.environ, "OMP_NUM_THREADS": "1"} if args.jobs > 1 else None
+    codes = Parallel(n_jobs=args.jobs)(
+        delayed(subprocess.call)(cmd, env=env) for cmd in commands
+    )
     failed = sum(code != 0 for code in codes)
     print(f"{len(commands) - failed}/{len(commands)} runs succeeded")
 

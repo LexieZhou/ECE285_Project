@@ -42,26 +42,30 @@ def test_adult_sizes_disjoint_and_fixed_held_out():
         for j in range(i + 1, 4):
             assert not sets[i] & sets[j]
 
-    # Same held-out rows for every seed; their codes differ because bins are fit per train split.
-    assert s0.test.index.equals(s1.test.index) and s0.reference.index.equals(s1.reference.index)
+    # Same held-out rows and the same codes for every seed (bins are fixed).
+    assert s0.test.equals(s1.test) and s0.reference.equals(s1.reference)
     assert set(s0.train.index) != set(s1.train.index)
     assert_codes_in_range(s0)
 
 
-def test_adult_small_n_bins_and_nested_subsets():
+def test_adult_fixed_bins_and_nested_subsets():
     small = make_splits("adult", 500, seed=0, cfg=CFG)
     large = make_splits("adult", 5000, seed=0, cfg=CFG)
-    numerical = [c for c in small.columns if c in ("age", "hours-per-week")]
-    for col in numerical:
-        assert small.cardinalities[small.columns.index(col)] <= CFG["data"]["n_bins_small"]
+    other = make_splits("adult", 500, seed=1, cfg=CFG)
+    # One discrete space for every n and seed: same cardinalities, same codes per row.
+    assert small.cardinalities == large.cardinalities == other.cardinalities
+    assert small.train.equals(large.train.loc[small.train.index])
     assert set(small.train.index) <= set(large.train.index)
+    for col in ("age", "capital-gain", "capital-loss", "hours-per-week"):
+        assert small.cardinalities[small.columns.index(col)] <= CFG["data"]["n_bins"]
+    assert small.cardinalities[small.columns.index("education-num")] == 16  # kept as-is
 
 
 def test_adult_full():
     s = make_splits("adult", None, seed=0, cfg=CFG)
     assert len(s.val) == pytest.approx(0.25 * len(s.train), rel=0.01)
     sets = index_sets(s)
-    assert sum(len(x) for x in sets) == len(set().union(*sets)) == 48842
+    assert sum(len(x) for x in sets) == len(set().union(*sets)) == 48842 - CFG["data"]["binning_size"]
 
 
 def test_child_fixed_held_out_and_schema():
@@ -81,3 +85,11 @@ def test_reserved_seed_and_bad_inputs():
         make_splits("child", None, seed=0, cfg=CFG)
     with pytest.raises(ValueError):
         make_splits("nope", 500, seed=0, cfg=CFG)
+
+
+def test_adult_numerical_columns_not_constant():
+    # Regression: zero-inflated capital-gain/-loss used to collapse into a single bin.
+    for n in (500, 5000):
+        s = make_splits("adult", n, seed=0, cfg=CFG)
+        for col in ("age", "education-num", "capital-gain", "capital-loss", "hours-per-week"):
+            assert s.train[col].nunique() >= 2, (n, col)

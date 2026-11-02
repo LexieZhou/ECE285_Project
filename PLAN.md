@@ -44,6 +44,8 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
       (16,281 rows)** instead of a random 10k from all 48,842 rows, so test metrics (e.g.
       TSTR) line up with the literature. Reference (5k) and the train/val pool (27,561)
       are drawn from the official `adult.data` (32,561). bnlearn keeps test 10k.
+      *Protocol change (2026-11-02):* 2,000 more `adult.data` rows form a fixed
+      **binning set** (bin edges only, see 0.3), so the pool is now 25,561.
 - [x] Training subsets `n ∈ {500, 1k, 5k, full}` drawn per seed from the remaining pool;
       validation set of size `max(0.25n, 200)` drawn disjointly from the same pool.
       For a fixed seed, smaller train sets are prefixes of larger ones (nested).
@@ -57,14 +59,28 @@ Both meet at a shared interface: `(train_df, val_df, test_df, schema, graph)` in
 ### 0.3 Discretization and schema
 - [x] Quantile-bin numerical columns using **training split only** (default K = 10,
       reduce to K = 5 for n ≤ 1k; record the choice in config).
+      *Superseded (2026-11-02), see the decision below.*
 - [x] Categorical vocabularies come from the known schema (all categories), so
       test-time categories never go out of vocabulary. Bin edges extend to ±∞.
 - [x] Output: integer-coded DataFrames + column names and cardinalities (`DataSplits`).
-- [ ] **Open question (decide before Stage 1 figures):** Adult bin edges depend on the
-      training split and K changes between n ≤ 1k and n > 1k, so Adult test NLL is not
-      comparable across seeds/n in absolute terms. Paired comparisons within a
-      (dataset, n, seed) are unaffected. Options: fixed K for all n, or report NLL
-      relative to the `marginal` variant.
+- [x] **Bug fixed (2026-11-02): `capital-gain` and `capital-loss` were constant after
+      binning.** ~92% / ~95% of values are 0, so every quantile edge was 0, `np.unique`
+      left the single edge [0], and every value (0 or positive) landed in bin 1; the
+      columns carried no information in every Adult run before this fix.
+      *Rule now (`quantile_edges`):* if more than 1/K of the training values equal the
+      column minimum, the minimum gets bin 0 to itself and the values above it are
+      quantile-binned into K − 1 bins (still fit on the training split only). Adult-500:
+      capital-gain 445 zeros + 55 positives over bins 1–4.
+- [x] **Decided (2026-11-02): fixed bins for Adult.** Previously bin edges depended on
+      the training split and K changed between n ≤ 1k and n > 1k, so Adult test NLL was
+      not comparable across seeds/n. Now edges are fit **once** on the fixed binning set
+      (2,000 `adult.data` rows disjoint from train/val/test/reference), with **K = 10 for
+      every n**, so all Adult runs share one discrete space (CLAUDE.md invariant 4 updated).
+      This follows the fixed-domain convention of the private-pgm / MST / AIM Adult
+      benchmarks. `education-num` (16 levels, one per `education` value) is kept as-is
+      instead of binned. NLL is still not comparable with other papers (every paper
+      discretizes differently); literature comparisons go through TSTR and DOMIAS.
+      NLL relative to `marginal` can be reported as a secondary number.
 
 ### 0.4 Structures
 - [x] **Column order:** for each (dataset, n, seed), the generation order is a
@@ -123,8 +139,13 @@ ancestors of its parents, so the model would no longer be `p(x_j | x_{pa(j)})`.
       *Implemented so far:* `fit_and_evaluate` trains every grid combination **inside each
       run** and keeps the lowest validation NLL (train/val only, no leakage). The
       `default.yaml` comment ("picked on seed 0, reused") is not implemented yet.
-      **Open decision:** per-run selection costs 8× (Adult-500 is ~20 s per combination
-      on one thread), so before Stage 1 either keep it, or select on seed 0 and reuse.
+      **Decided and implemented (2026-11-02):** the run at `train.hparam_seed` (0) trains
+      every combination and keeps the lowest validation NLL; other seeds of the same
+      (stage, dataset, n, variant) read its `metrics.json` and reuse that choice
+      (`hparams_from` records which). `run_grid.py` runs seed 0 first. Caveat: at n = 500
+      the selection uses only 200 val rows. Observation (Adult-500, seed 0): weight decay
+      0 vs 1e-2 gives identical val NLL to 3 decimals, so the grid is effectively 4
+      combinations; consider a larger value (e.g. 0.1) for the RQ2 regularization control.
 
 ### 0.7 Run interface and results layout
 - [x] One entry point: `python -m tabstruct.train --config configs/....yaml
@@ -142,13 +163,22 @@ test NLL in nats/row:
 
 | | marginal | full_prefix | bn |
 |---|---|---|---|
-| Adult n=500 | 14.99 | 11.72 | 12.28 |
+| Adult n=500 (fixed bins K=10, grid-selected hparams) | 17.38 | 13.37 | 14.05 |
 | CHILD n=500 (true BN 12.17) | 17.20 | 12.68 | 12.72 |
 
-Early stopping kicked in after 34–49 epochs. Adult test NLL is 0.3–0.45 nats/row above
-val NLL for every variant (val is drawn from `adult.data`, test is the official `adult.test`),
-which suggests a distribution shift between the two files; worth checking before
-comparing to the literature.
+CHILD used default hyperparameters. Adult history: 14.99 / 11.72 / 12.28 before the
+capital-column fix, 15.64 / 12.34 / 12.85 after it (per-run bins, K = 5); NLL rises with
+each change because the discrete space gets finer (more information per row), not
+because models got worse. With fixed bins, seed 1 (reusing seed 0's hyperparameters)
+gives 17.39 / 13.37 / 14.07, within 0.02 of seed 0.
+Early stopping kicked in after 32–49 epochs. Adult test NLL was 0.3–0.45 nats/row above
+val NLL for every variant. *Diagnosed (2026-11-02): not a shift between `adult.data` and
+`adult.test`.* Under a Laplace-smoothed marginal model fit on train, `adult.test` and
+16k unused `adult.data` rows differ by only 0.02 nats/row (n=500) and 0.004 (n=5000);
+raw per-column TVD between the two files is ≤ 0.012. The gap comes from the small val
+set (200 rows at n=500: val 14.70 vs 14.96 on both large held-out sets; at n=5000 with
+1,250 val rows the gap disappears) plus the optimistic bias of early-stopping on val.
+So val NLL is not a reliable estimate at small n; report test NLL only.
 
 ---
 

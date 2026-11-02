@@ -1,5 +1,6 @@
 """Graph construction per variant (invariant 3) and an end-to-end training run."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +9,7 @@ import pytest
 import torch
 
 from tabstruct.data.splits import DataSplits
-from tabstruct.train import build_graph, fit_and_evaluate
+from tabstruct.train import build_graph, fit_and_evaluate, hparam_candidates
 from tabstruct.utils import deep_update, load_config, resolve_device
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,3 +134,23 @@ def test_resolve_device():
     assert resolve_device("auto").type == ("cuda" if torch.cuda.is_available() else "cpu")
     with pytest.raises(ValueError):
         resolve_device("mps")
+
+
+def test_hparam_candidates_reuse_the_hparam_seed_choice(tmp_path):
+    grid = {"lr": [1e-3, 3e-4], "weight_decay": [0.0, 1e-2], "dropout": [0.1, 0.3]}
+    cfg = deep_update(CFG, {"train": {"hparam_grid": grid, "hparam_seed": 0}})
+    seed0, seed1 = tmp_path / "seed0", tmp_path / "seed1"
+
+    assert hparam_candidates(CFG, 1, seed1) == ([{"lr": 1e-3, "weight_decay": 0.0, "dropout": 0.1}], "default")
+    candidates, source = hparam_candidates(cfg, 0, seed0)
+    assert len(candidates) == 8 and source == "search"
+    with pytest.raises(FileNotFoundError):  # seed 0 has not run yet
+        hparam_candidates(cfg, 1, seed1)
+
+    seed0.mkdir()
+    chosen = {"lr": 3e-4, "weight_decay": 1e-2, "dropout": 0.3}
+    (seed0 / "metrics.json").write_text(json.dumps({"hparams": chosen, "hparams_from": "default"}))
+    with pytest.raises(ValueError):  # seed 0 ran without the grid
+        hparam_candidates(cfg, 1, seed1)
+    (seed0 / "metrics.json").write_text(json.dumps({"hparams": chosen, "hparams_from": "search"}))
+    assert hparam_candidates(cfg, 1, seed1) == ([chosen], "seed0")

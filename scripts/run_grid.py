@@ -53,9 +53,12 @@ def main() -> None:
         return
     # The models are tiny: one thread per run is as fast as many, and avoids oversubscription.
     env = {**os.environ, "OMP_NUM_THREADS": "1"} if args.jobs > 1 else None
-    codes = Parallel(n_jobs=args.jobs)(
-        delayed(subprocess.call)(cmd, env=env) for cmd in commands
-    )
+    # Seeds reuse the hyperparameters selected at train.hparam_seed, so that seed runs first.
+    hparam_seed = str(load_config(args.config)["train"]["hparam_seed"])
+    codes = []
+    for phase in ([c for c in commands if c[-1] == hparam_seed],
+                  [c for c in commands if c[-1] != hparam_seed]):
+        codes += Parallel(n_jobs=args.jobs)(delayed(subprocess.call)(cmd, env=env) for cmd in phase)
     failed = sum(code != 0 for code in codes)
     print(f"{len(commands) - failed}/{len(commands)} runs succeeded")
 

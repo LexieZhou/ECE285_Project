@@ -1,4 +1,8 @@
-"""Discretization of raw tables into integer codes. Fit on the training split only."""
+"""Discretization of raw tables into integer codes.
+
+Adult bin edges are fit once on a fixed binning set (see `splits.make_splits`), never on
+test or reference rows.
+"""
 
 from __future__ import annotations
 
@@ -40,15 +44,31 @@ class Discretizer:
         return pd.DataFrame(codes, index=df.index).astype(np.int64)
 
 
+def quantile_edges(values: np.ndarray, n_bins: int) -> np.ndarray:
+    """Interior edges for `n_bins` quantile bins (duplicate edges merged).
+
+    Bin k holds e_{k-1} <= v < e_k. If more than 1/n_bins of the values equal the minimum
+    (e.g. capital-gain, ~92% zeros), plain quantiles put every edge on that minimum and
+    the column becomes constant. Instead the minimum gets bin 0 to itself and the values
+    above it are quantile-binned into n_bins - 1 bins.
+    """
+    values = values.astype(float)
+    lo = values.min()
+    if np.mean(values == lo) <= 1 / n_bins:
+        return np.unique(np.quantile(values, np.linspace(0, 1, n_bins + 1)[1:-1]))
+    rest = values[values > lo]
+    inner = np.quantile(rest, np.linspace(0, 1, n_bins)[1:-1]) if len(rest) else []
+    return np.unique(np.concatenate([[np.nextafter(lo, np.inf)], inner]))
+
+
 def fit_discretizer(
-    train: pd.DataFrame, numerical: list[str], categories: dict[str, list], n_bins: int
+    data: pd.DataFrame, numerical: list[str], categories: dict[str, list], n_bins: int
 ) -> Discretizer:
-    """Quantile-bin `numerical` columns on `train` (duplicate edges merged); other
-    columns use the vocabularies in `categories`. Column order follows `train`."""
-    quantiles = np.linspace(0, 1, n_bins + 1)[1:-1]
-    bin_edges = {col: np.unique(np.quantile(train[col].to_numpy(), quantiles)) for col in numerical}
+    """Quantile-bin `numerical` columns on `data` (see `quantile_edges`); other columns
+    use the vocabularies in `categories`. Column order follows `data`."""
+    bin_edges = {col: quantile_edges(data[col].to_numpy(), n_bins) for col in numerical}
     return Discretizer(
-        columns=list(train.columns),
+        columns=list(data.columns),
         bin_edges=bin_edges,
-        categories={col: list(categories[col]) for col in train.columns if col not in bin_edges},
+        categories={col: list(categories[col]) for col in data.columns if col not in bin_edges},
     )

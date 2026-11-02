@@ -34,11 +34,14 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
 
     Test (cfg.data.test_size) and reference (cfg.data.reference_size) sets are fixed;
     train and a disjoint val set of size max(val_fraction * n, min_val_size) are drawn
-    from the remaining pool with `seed`. The discretizer is fit on train only.
+    from the remaining pool with `seed`.
 
     Adult uses the official `adult.test` (16,281 rows) as its test set, ignoring
     cfg.data.test_size, so results are comparable with the literature; the reference
-    set and the pool come from the official `adult.data`.
+    set, a fixed binning set (cfg.data.binning_size) and the pool come from the official
+    `adult.data`. Bin edges (K = cfg.data.n_bins) are fit on the binning set only, so
+    every n and seed shares one discrete space and NLL is comparable across them. The
+    binning set is never used for anything else.
 
     For a fixed seed, smaller training sets are prefixes of larger ones, so NLL-vs-n
     curves compare nested subsets.
@@ -51,9 +54,11 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
     if dataset == "adult":
         raw = adult.load_adult(cfg["paths"]["data_dir"])
         official_train, test = raw.iloc[: adult.N_OFFICIAL_TRAIN], raw.iloc[adult.N_OFFICIAL_TRAIN :]
-        n_ref = data_cfg["reference_size"]
+        n_ref, n_bin = data_cfg["reference_size"], data_cfg["binning_size"]
         perm = np.random.default_rng(SPLIT_SEED).permutation(len(official_train))
-        reference, pool = official_train.iloc[perm[:n_ref]], official_train.iloc[perm[n_ref:]]
+        reference = official_train.iloc[perm[:n_ref]]
+        binning = official_train.iloc[perm[n_ref : n_ref + n_bin]]
+        pool = official_train.iloc[perm[n_ref + n_bin :]]
         if n is None:
             fraction = data_cfg["val_fraction"]
             val_size = round(len(pool) * fraction / (1 + fraction))
@@ -64,9 +69,10 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
             raise ValueError(f"adult: n={n} + val={val_size} exceeds the pool of {len(pool)} rows")
         idx = np.random.default_rng(seed).permutation(len(pool))
         train, val = pool.iloc[idx[:n]], pool.iloc[idx[n : n + val_size]]
-        numerical = adult.NUMERICAL
         # Vocabularies are schema knowledge (the set of possible values), not fitted statistics.
-        categories = {col: sorted(raw[col].unique()) for col in adult.CATEGORICAL}
+        unbinned = [col for col in raw.columns if col not in adult.BINNED]
+        categories = {col: sorted(raw[col].unique()) for col in unbinned}
+        disc = fit_discretizer(binning, adult.BINNED, categories, data_cfg["n_bins"])
         true_model = None
 
     elif dataset in BNLEARN_NETWORKS:
@@ -77,14 +83,12 @@ def make_splits(dataset: str, n: int | None, seed: int, cfg: dict[str, Any]) -> 
         test, reference = fixed.iloc[:n_test], fixed.iloc[n_test:]
         rows = bnlearn.sample_network(true_model, n + _val_size(n, data_cfg), seed=seed)
         train, val = rows.iloc[:n], rows.iloc[n:]
-        numerical = []
-        categories = bnlearn.state_names(true_model)
+        # All nodes are categorical: the discretizer only maps state names to codes.
+        disc = fit_discretizer(train, [], bnlearn.state_names(true_model), data_cfg["n_bins"])
 
     else:
         raise ValueError(f"unknown dataset: {dataset}")
 
-    n_bins = data_cfg["n_bins_small"] if n <= data_cfg["small_n_threshold"] else data_cfg["n_bins"]
-    disc = fit_discretizer(train, numerical, categories, n_bins)
     return DataSplits(
         train=disc.transform(train),
         val=disc.transform(val),

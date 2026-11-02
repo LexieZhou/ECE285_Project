@@ -13,6 +13,7 @@ import argparse
 import copy
 import dataclasses
 import itertools
+import json
 import math
 import re
 import time
@@ -111,6 +112,29 @@ def hparam_configs(cfg: dict[str, Any]) -> list[dict[str, float]]:
     return [{**defaults, **dict(zip(grid, values))} for values in itertools.product(*grid.values())]
 
 
+def hparam_candidates(
+    cfg: dict[str, Any], seed: int, out: Path
+) -> tuple[list[dict[str, float]], str]:
+    """Hyperparameters to train in this run, and where they come from.
+
+    Without a grid: the defaults. At cfg.train.hparam_seed: every grid combination. Any
+    other seed reuses the choice of the hparam_seed run of the same (stage, dataset, n,
+    variant), which must already exist.
+    """
+    if not cfg["train"].get("hparam_grid"):
+        return hparam_configs(cfg), "default"
+    hparam_seed = cfg["train"]["hparam_seed"]
+    if seed == hparam_seed:
+        return hparam_configs(cfg), "search"
+    source = out.parent / f"seed{hparam_seed}" / "metrics.json"
+    if not source.exists():
+        raise FileNotFoundError(f"{source} missing: run seed {hparam_seed} first, it selects hyperparameters")
+    selected = json.loads(source.read_text())
+    if selected.get("hparams_from") != "search":
+        raise ValueError(f"{source} did not search the hyperparameter grid")
+    return [selected["hparams"]], f"seed{hparam_seed}"
+
+
 @torch.no_grad()
 def per_column_nll(
     model: MaskedTabularTransformer, x: torch.Tensor, attn_mask: torch.Tensor, batch_size: int = 4096
@@ -166,12 +190,18 @@ def train_model(
 
 
 def fit_and_evaluate(
-    variant: str, splits: DataSplits, graph: Graph, cfg: dict[str, Any], out: Path, seed: int
+    variant: str,
+    splits: DataSplits,
+    graph: Graph,
+    cfg: dict[str, Any],
+    out: Path,
+    seed: int,
+    candidates: list[dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     """Train (early stopping on splits.val), sample, compute metrics, write artifacts to `out`.
 
-    With a cfg.train.hparam_grid, every combination is trained and the one with the
-    lowest validation NLL is kept (train and val data only).
+    Every hyperparameter combination in `candidates` (default: `hparam_configs(cfg)`) is
+    trained and the one with the lowest validation NLL is kept (train and val data only).
     """
     if variant not in NEURAL_VARIANTS and not RANDOM_DAG.fullmatch(variant):
         raise NotImplementedError(f"variant {variant!r} is not implemented yet")
@@ -187,7 +217,7 @@ def fit_and_evaluate(
     attn_mask = build_attention_mask(graph.parents).to(device)
 
     search, best = [], None
-    for hparams in hparam_configs(cfg):
+    for hparams in candidates or hparam_configs(cfg):
         torch.manual_seed(seed)  # same init and batch order for every combination
         model, info = train_model(x["train"], x["val"], cardinalities, attn_mask, hparams, cfg)
         search.append({**hparams, **info})
@@ -247,7 +277,9 @@ def main(argv: list[str] | None = None) -> None:
     graph = build_graph(args.variant, splits, cfg, rng)
     save_json(graph.to_dict(), out / "graph.json")
 
-    metrics = fit_and_evaluate(args.variant, splits, graph, cfg, out, args.seed)
+    candidates, hparams_from = hparam_candidates(cfg, args.seed, out)
+    metrics = fit_and_evaluate(args.variant, splits, graph, cfg, out, args.seed, candidates)
+    metrics["hparams_from"] = hparams_from
     save_json(metrics, out / "metrics.json")
     print(f"{out}: test NLL {metrics['nll_test']:.4f} nats/row, best epoch {metrics['best_epoch']}")
 

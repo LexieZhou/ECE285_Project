@@ -67,9 +67,11 @@ uv run python scripts/make_figures.py    # regenerate all figures from summary.c
 3. **Same column order.** Within a (dataset, n, seed), full-prefix, BN and random-DAG
    variants use the same order (a topological order of the learned BN). The true-DAG
    variant uses its own order and is paired with a full-prefix run in that order.
-4. **No leakage from held-out data.** Bin edges, the learned BN, random DAGs, support
-   count tables and hyperparameter selection use only the training split (and the
-   validation split for early stopping/model selection). The test set and the DOMIAS
+4. **No leakage from held-out data.** The learned BN, random DAGs, support count tables
+   and hyperparameter selection use only the training split (and the validation split
+   for early stopping/model selection). Adult bin edges are fit once on a fixed binning
+   set of `adult.data` rows that is disjoint from train/val/test/reference and used for
+   nothing else, so all runs share one discrete space. The test set and the DOMIAS
    reference set are never seen during training or tuning.
 5. **Leave-one-out support for training rows.** When computing `s_{j,r}` for a row that
    is in the training set, subtract that row itself. SCSA must be trained with LOO

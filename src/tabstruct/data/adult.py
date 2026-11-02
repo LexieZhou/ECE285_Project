@@ -16,6 +16,9 @@ import pandas as pd
 TARGET = "income"
 N_OFFICIAL_TRAIN = 32561
 NUMERICAL = ["age", "education-num", "capital-gain", "capital-loss", "hours-per-week"]
+# Quantile-binned. education-num has only 16 levels (one per education value), so it is
+# kept as-is with its levels as the vocabulary.
+BINNED = ["age", "capital-gain", "capital-loss", "hours-per-week"]
 CATEGORICAL = [
     "workclass",
     "education",

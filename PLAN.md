@@ -227,7 +227,21 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
         the gain is sparsity; if BN ≪ random, edges are informative. On bnlearn also
         compare `bn` vs `true_dag`.
   - Paired tests across seeds (Wilcoxon or paired bootstrap).
-- [ ] Figure: NLL vs n, one line per variant, per dataset.
+  - *Implemented (2026-11-03):* `eval/compare.py` + `scripts/make_figures.py` →
+    `reports/tables/stage1_{variants,comparisons}.csv`. Paired per-seed differences,
+    t-CI, Wilcoxon (two-sided; with 5 seeds its minimum is 0.0625, so read the CI and the
+    count of seeds favouring each side). `random_dag_<k>` averaged within a seed.
+  - *Results, n ∈ {500, 1k}, 5 seeds (n ≥ 5k still running):* **RQ1 is negative** —
+    `bn − full_prefix` > 0 everywhere: Adult +0.70 ± 0.03 (n=500) / +0.52 ± 0.12 (1k);
+    INSURANCE +0.37 / +0.17; CHILD +0.07 / ≈0; ALARM +0.14 / ≈0 (CI crosses 0).
+    **RQ2: edges are informative, sparsity alone hurts** — `bn − random_dag` −2 to −7,
+    `random_dag − full_prefix` +3 to +7.5 (5/5 seeds). Why BN loses: `bn − true_dag`
+    +0.19 to +0.90 (the BIC-learned BN misses true edges at small n; Adult-500's BN has 7
+    of 14 columns without parents), while `true_dag − full_prefix_trueorder` is −0.11 to
+    −0.48 (5/5): correct sparse structure does beat the full prefix. Ranking:
+    true_dag < full_prefix < bn ≪ random_dag. `bn ≈ bn_cpt` (within 0.03): the neural
+    model matches counting on the same graph, so this is the graph, not training.
+- [x] Figure: NLL vs n, one line per variant, per dataset (`stage1_nll_vs_n.{pdf,png}`).
 
 ## Phase 2 — Stage 2: support analysis, RQ3 (Nov 5 – Nov 8)
 
@@ -235,15 +249,34 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
       that match `x_{C(j)}` (hash tuples → counts). Training rows use leave-one-out
       counts (subtract 1). Unit-test against a brute-force count.
       Full prefix on 22k rows × 37 columns takes ~3 s.
-- [ ] Buckets on `s_{j,1}` (support under **BN parents**, same buckets for every graph):
+- [x] Buckets on `s_{j,1}` (support under **BN parents**, same buckets for every graph):
       zero (0), low (1–4), medium (5–19), high (≥20). Fix thresholds now; do not tune.
-- [ ] For every test row × column: assign bucket, then average per-column NLL per
+- [x] For every test row × column: assign bucket, then average per-column NLL per
       (bucket, variant). Plot NLL by bucket with one bar per variant.
-- [ ] Vulnerability: Meeus et al. (2023) score = mean cosine distance of a training
+      *Implemented (2026-11-03):* `eval/support_analysis.py` + `scripts/analyze_support.py`
+      rebuild each (dataset, n, seed)'s splits from the `bn` run's `config.yaml`, map every
+      variant's per-column NLL to original column order, and write
+      `results/stage2/<support>/` (per-seed tables, paired `bucket_comparisons.csv`,
+      train/test `generalization_gap.csv`). The figure shows the paired difference
+      `bn − full_prefix` per bucket (one bar per n) rather than raw NLL bars per variant:
+      buckets mix columns, so the paired difference on the same cells is the readable
+      quantity; raw per-variant NLL is in `cells.csv`.
+      *Protocol addition (2026-11-03): secondary view bucketed on full-prefix support
+      `s_{j,2}` (`--support full_prefix`).* The learned BN at small n is so sparse that
+      almost every cell has high `s_{j,1}` (Adult-500 seed 0: 0 zero-support test cells,
+      97% high), so `s_{j,1}` buckets barely resolve anything on Adult. Under `s_{j,2}`
+      the Adult-500 cells split 32 / 18 / 11 / 39%. The `s_{j,1}` view stays the primary,
+      pre-registered analysis; thresholds unchanged.
+- [x] Vulnerability: Meeus et al. (2023) score = mean cosine distance of a training
       row to its k = 5 nearest training neighbours (one-hot encoding).
       Spearman correlation between each training row's `min_j s_{j,1}` and its score.
-- [ ] Optional cheap MI signal for likelihood models: per-row loss-based MI
+      (`eval/privacy.vulnerability_scores`, tested against sklearn cosine distances.)
+- [x] Optional cheap MI signal for likelihood models: per-row loss-based MI
       (train vs. held-out NLL) by bucket, before DOMIAS is ready.
+      AUC of training rows (members) vs test rows (non-members) scored by −row NLL,
+      per row bucket of `min_j s_{j,1}` (training rows LOO). Under `s_{j,2}` the row
+      minimum is almost always 0, so that view's row-level MI is degenerate.
+- [ ] Run on the Stage 1 grid and fill in the go/no-go below.
 
 ## Mid-term report (due ~Nov 9)
 

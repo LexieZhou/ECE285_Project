@@ -21,10 +21,14 @@ def summarize_nll(per_column_nll: np.ndarray, columns: list[str]) -> dict[str, o
     }
 
 
+def bucket_index(support: np.ndarray) -> np.ndarray:
+    """Index into SUPPORT_BUCKETS (0 = zero, ..., 3 = high) for each support count."""
+    return np.digitize(support, list(SUPPORT_BUCKETS.values())[1:])
+
+
 def bucket_nll(per_column_nll: np.ndarray, support: np.ndarray) -> pd.DataFrame:
     """Mean NLL and cell count per support bucket; both inputs [N, d]."""
-    edges = list(SUPPORT_BUCKETS.values())
-    bucket = np.digitize(support.ravel(), edges[1:])  # 0 = zero, ..., 3 = high
+    bucket = bucket_index(support.ravel())
     nll = per_column_nll.ravel()
     rows = []
     for i, name in enumerate(SUPPORT_BUCKETS):

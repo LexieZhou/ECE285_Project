@@ -44,13 +44,15 @@ reports/       # mid-term / final report sources and figures
 ## Commands
 
 ```bash
-uv sync                                  # install (or: pip install -e ".[dev,baselines]")
+uv sync --extra dev                      # install; without dev, `uv run pytest` falls back to
+                                         # a pytest outside .venv (or: pip install -e ".[dev,baselines]")
 uv run pytest -q                         # all tests
 uv run pytest tests/test_masks.py -q     # mask-invariance test only
 uv run python -m tabstruct.train --config configs/default.yaml \
     --dataset adult --n 500 --variant bn --seed 0
 uv run python scripts/run_grid.py --config configs/smoke.yaml --dry-run   # list runs
-uv run python scripts/run_grid.py --config configs/stage1.yaml --jobs 8   # run a grid
+uv run python scripts/run_grid.py --config configs/stage1.yaml --jobs 8 --skip-existing
+    # run a grid; each run logs to its train.log; resumable; filter with --datasets/--n/--variants/--seeds
 uv run python scripts/aggregate.py       # results/**/metrics.json -> results/summary.csv
 uv run python scripts/make_figures.py    # regenerate all figures from summary.csv
 ```

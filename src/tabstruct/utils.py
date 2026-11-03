@@ -51,12 +51,19 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> di
 
 
 def run_dir(
-    results_dir: str | Path, stage: str, dataset: str, n: int | None, variant: str, seed: int
+    results_dir: str | Path,
+    stage: str,
+    dataset: str,
+    n: int | None,
+    variant: str,
+    seed: int,
+    create: bool = True,
 ) -> Path:
-    """Create and return `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/`."""
+    """Return (and by default create) `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/`."""
     n_tag = "full" if n is None else str(n)
     path = Path(results_dir) / stage / dataset / f"n{n_tag}" / variant / f"seed{seed}"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 

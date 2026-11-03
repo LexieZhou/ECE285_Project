@@ -132,26 +132,33 @@ ancestors of its parents, so the model would no longer be `p(x_j | x_{pa(j)})`.
 - [x] Report held-out test NLL (nats/row) and per-column NLL `[N_test, d]` saved to
       disk (Stage 2 needs it). `metrics.json` also has train/val NLL and per-column
       test NLL keyed by column name (positions differ across seeds).
-- [ ] Hyperparameters: a **small shared grid** (lr ∈ {1e-3, 3e-4}, weight decay ∈
-      {0, 1e-2}, dropout ∈ {0.1, 0.3}) selected on validation NLL **per variant**.
+- [x] Hyperparameters: a **small shared grid** (lr ∈ {1e-3, 3e-4}, weight decay ∈
+      {0, 1.0}, dropout ∈ {0.1, 0.3}) selected on validation NLL **per variant**.
       This matters for RQ2: a well-regularized full-prefix model is the fair control
       for "is BN just a regularizer?".
-      *Implemented so far:* `fit_and_evaluate` trains every grid combination **inside each
-      run** and keeps the lowest validation NLL (train/val only, no leakage). The
-      `default.yaml` comment ("picked on seed 0, reused") is not implemented yet.
       **Decided and implemented (2026-11-02):** the run at `train.hparam_seed` (0) trains
       every combination and keeps the lowest validation NLL; other seeds of the same
       (stage, dataset, n, variant) read its `metrics.json` and reuse that choice
       (`hparams_from` records which). `run_grid.py` runs seed 0 first. Caveat: at n = 500
-      the selection uses only 200 val rows. Observation (Adult-500, seed 0): weight decay
-      0 vs 1e-2 gives identical val NLL to 3 decimals, so the grid is effectively 4
-      combinations; consider a larger value (e.g. 0.1) for the RQ2 regularization control.
+      the selection uses only 200 val rows.
+      *Grid change (2026-11-02): weight decay {0, 1e-2} → {0, 1.0}.* AdamW shrinks weights
+      by (1 − lr·wd) per step and Adult-500 trains only ~320 steps, so 1e-2 shrank them by
+      0.3% in total and gave val NLL identical to wd = 0 (the grid was effectively 4
+      combinations). Sweep on Adult-500, seed 0, dropout 0.1: test NLL moves ≤ 0.05 for
+      wd ∈ {0, 0.1, 1.0} for both `full_prefix` and `bn`. 1.0 is kept because it does bite
+      at larger n (~1,600 steps at n = 5000 → ×0.2), and val selection falls back to 0 if
+      it is too strong. Observation for RQ2: `full_prefix` overfits (train 11.7–12.0 vs
+      test 13.4; `bn` gap ~0.3) and neither weight decay nor dropout 0.3 closes the gap;
+      early stopping is the effective regularizer at n = 500.
 
 ### 0.7 Run interface and results layout
 - [x] One entry point: `python -m tabstruct.train --config configs/....yaml
       --dataset adult --n 500 --variant bn --seed 0`.
 - [x] Each run writes `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/` with
       `config.yaml`, `metrics.json`, `per_column_nll.npy`, `graph.json`, `samples.csv`.
+      *Added (2026-11-02):* `train_per_column_nll.npy` `[n_train, d]` (row r = row r of the
+      training split), so Stage 2 loss-based MI and per-row support/vulnerability analysis
+      need no reruns.
       Neural variants only so far; baselines and SCSA raise `NotImplementedError`.
 - [x] `scripts/aggregate.py` collects all `metrics.json` into one `results/summary.csv`.
 
@@ -196,11 +203,24 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
         Seed 0, n=500: Adult 14.04 (neural `bn` 14.05), CHILD 12.71 (neural `bn` 12.72,
         default hparams); CHILD n=5000: 12.28, excess 0.11. So the neural model with BN
         masks matches counting on the same graph.
-  - [ ] BN with HDP smoothing (Petitjean et al., 2018). Reference code is Java;
+  - [x] BN with HDP smoothing (Petitjean et al., 2018). Reference code is Java;
         if wrapping it is too costly, implement hierarchical back-off smoothing of
         each CPT row toward its parent-subset/marginal and document the substitution.
         Note: this baseline is conceptually close to SCSA (back-off by support), so it
         is important for the RQ4 story.
+        *Substitution (2026-11-02), `baselines/bn_hdp.py`:* deterministic hierarchical
+        Dirichlet back-off, not the Java Gibbs sampler. Each CPT is a tree over its
+        parents (added in decreasing mutual information with the child, train only):
+        level l is smoothed toward level l − 1 with one concentration per (column, level),
+        marginal toward uniform. Differences from the paper: raw counts are passed up (no
+        table counts), and concentrations are point estimates maximizing the leave-one-out
+        log-likelihood of the training rows, not sampled. LOO alone drives a concentration
+        to ~0 when a CPT row has no singletons (unseen values then cost a lot on test), so
+        its lower bound ∈ {0.01, 0.3, 1, 2} is selected on val NLL, like `bn_cpt`'s ess.
+        Seed 0 test NLL, `bn_cpt` → `bn_hdp`: Adult 500 14.042 → 14.041, 5k 13.131 → 13.122;
+        CHILD 500 12.705 → 12.698, 5k equal; INSURANCE 500 14.404 → 14.367, 5k 13.273 → 13.272;
+        ALARM 500 11.450 → 11.493 (backing off to the marginal hurts ALARM's near-deterministic
+        CPTs with rare parent configurations), 5k equal. Fits in seconds.
 - [ ] Analysis:
   - **RQ1:** `bn − full_prefix` test NLL, per (dataset, n), mean ± 95% CI over seeds.
   - **RQ2:** `bn − random_dag` (average over the 5 random DAGs per seed). If BN ≈ random,

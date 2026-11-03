@@ -3,8 +3,8 @@
     python -m tabstruct.train --config configs/default.yaml \
         --dataset adult --n 500 --variant bn --seed 0
 
-Writes config.yaml, graph.json, metrics.json, per_column_nll.npy and samples.csv to
-results/<stage>/<dataset>/n<n>/<variant>/seed<s>/.
+Writes config.yaml, graph.json, metrics.json, per_column_nll.npy (test),
+train_per_column_nll.npy and samples.csv to results/<stage>/<dataset>/n<n>/<variant>/seed<s>/.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ import pandas as pd
 import torch
 
 from tabstruct.baselines.bn_cpt import BNCPTGenerator
+from tabstruct.baselines.bn_hdp import BNHDPGenerator
 from tabstruct.data import DATASETS, bnlearn
 from tabstruct.data.splits import DataSplits, make_splits
 from tabstruct.eval.nll import summarize_nll
@@ -259,6 +260,38 @@ def fit_bn_cpt(
     return nll, gen.sample(len(splits.train), seed), info
 
 
+def fit_bn_hdp(
+    splits: DataSplits, graph: Graph, cfg: dict[str, Any], seed: int
+) -> tuple[dict[str, np.ndarray], pd.DataFrame, dict[str, Any]]:
+    """Hierarchically smoothed BN on the learned graph; the concentrations are fit by
+    leave-one-out on the training split, and their lower bound in
+    cfg.baselines.bn_hdp.min_concentration_grid is selected on validation NLL."""
+    search, best = [], None
+    for min_concentration in cfg["baselines"]["bn_hdp"]["min_concentration_grid"]:
+        gen = BNHDPGenerator(graph, min_concentration=min_concentration)
+        gen.fit(splits.train, splits.cardinalities)
+        nll_val = float(-gen.log_prob(splits.val).sum(1).mean())
+        search.append({"min_concentration": min_concentration, "nll_val": nll_val})
+        if best is None or nll_val < best[1]:
+            best = (gen, nll_val, min_concentration)
+    gen, _, min_concentration = best
+    nll = {split: -gen.log_prob(getattr(splits, split)) for split in ("train", "val", "test")}
+    names = [splits.columns[c] for c in graph.order]
+    info = {
+        "n_params": gen.n_params(),
+        "device": "cpu",
+        "hparams": {
+            "min_concentration": min_concentration,
+            "concentrations": dict(zip(names, gen.concentrations)),
+            "parent_orders": {
+                names[j]: [names[p] for p in tree] for j, tree in enumerate(gen.parent_orders)
+            },
+        },
+        "hparam_search": search,
+    }
+    return nll, gen.sample(len(splits.train), seed), info
+
+
 def fit_and_evaluate(
     variant: str,
     splits: DataSplits,
@@ -269,16 +302,20 @@ def fit_and_evaluate(
     candidates: list[dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     """Fit `variant` (model selection on splits.val only), sample, compute metrics and
-    write per_column_nll.npy and samples.csv to `out`. `candidates` are the neural
+    write per_column_nll.npy (test), train_per_column_nll.npy and samples.csv to `out`.
+    Row r of train_per_column_nll.npy is row r of splits.train (loss-based MI, Stage 2). `candidates` are the neural
     hyperparameters to try (see `fit_neural`)."""
     if is_neural(variant):
         nll, samples, info = fit_neural(splits, graph, cfg, seed, candidates)
     elif variant == "bn_cpt":
         nll, samples, info = fit_bn_cpt(splits, graph, cfg, seed)
+    elif variant == "bn_hdp":
+        nll, samples, info = fit_bn_hdp(splits, graph, cfg, seed)
     else:
         raise NotImplementedError(f"variant {variant!r} is not implemented yet")
 
     np.save(out / "per_column_nll.npy", nll["test"])
+    np.save(out / "train_per_column_nll.npy", nll["train"])
     samples.to_csv(out / "samples.csv", index=False)
     test = summarize_nll(nll["test"], [splits.columns[c] for c in graph.order])
     metrics: dict[str, Any] = {

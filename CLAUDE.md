@@ -93,7 +93,9 @@ uv run python scripts/make_figures.py    # regenerate all figures from summary.c
 - Variant names: `marginal`, `full_prefix`, `bn`, `random_dag_<k>`, `true_dag`,
   `full_prefix_trueorder`, `scsa`, `scsa_<ablation>`, `bn_cpt`, `bn_hdp`, `smote`, `tvae`.
 - Run outputs go to `results/<stage>/<dataset>/n<n>/<variant>/seed<s>/` containing
-  `config.yaml`, `metrics.json`, `per_column_nll.npy`, `graph.json`, `samples.csv`.
+  `config.yaml`, `metrics.json`, `per_column_nll.npy` (test rows),
+  `train_per_column_nll.npy` (training rows, same order as the training split; for
+  loss-based MI and per-row support analysis), `graph.json`, `samples.csv`.
 - Support buckets (fixed, do not tune): zero = 0, low = 1–4, medium = 5–19, high ≥ 20.
 - Keep experiment scripts thin; logic belongs in `src/tabstruct/`.
 - Unimplemented functions raise `NotImplementedError`; `tests/conftest.py` reports tests

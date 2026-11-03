@@ -32,7 +32,7 @@ train:
   # Searched on validation NLL per (stage, dataset, n, variant) at hparam_seed.
   hparam_grid:
     lr: [1.0e-3, 3.0e-4]
-    weight_decay: [0.0, 1.0e-2]
+    weight_decay: [0.0, 1.0]     # AdamW; 1e-2 had no effect at small n (PLAN 0.6)
     dropout: [0.1, 0.3]
 
 baselines:
@@ -43,6 +43,10 @@ baselines:
       - {prior: BDeu, equivalent_sample_size: 10.0}
       - {prior: BDeu, equivalent_sample_size: 100.0}
       - {prior: K2, equivalent_sample_size: 1.0}   # Laplace: +1 per cell
+  bn_hdp:
+    # Concentrations are fit by leave-one-out on train; their lower bound is selected per
+    # run on validation NLL. LOO alone drives them to ~0 when a CPT row has no singletons.
+    min_concentration_grid: [0.01, 0.3, 1.0, 2.0]
 
 scsa:
   gate_hidden: 16

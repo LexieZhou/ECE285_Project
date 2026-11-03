@@ -98,6 +98,9 @@ def test_fit_and_evaluate_end_to_end(tmp_path):
         nll = np.load(out / "per_column_nll.npy")
         assert nll.shape == (len(splits.test), 4)
         assert np.isclose(nll.sum(1).mean(), results[variant]["nll_test"])
+        train_nll = np.load(out / "train_per_column_nll.npy")
+        assert train_nll.shape == (len(splits.train), 4)
+        assert np.isclose(train_nll.sum(1).mean(), results[variant]["nll_train"])
         samples = pd.read_csv(out / "samples.csv")
         assert list(samples.columns) == splits.columns and len(samples) == len(splits.train)
         for col, card in zip(splits.columns, splits.cardinalities):
@@ -114,9 +117,22 @@ def test_fit_and_evaluate_end_to_end(tmp_path):
 
 def test_unimplemented_variants_raise():
     splits = chain_splits()
-    graph = build_graph("bn_hdp", splits, CFG, np.random.default_rng(0))
+    graph = build_graph("scsa", splits, CFG, np.random.default_rng(0))
     with pytest.raises(NotImplementedError):
-        fit_and_evaluate("bn_hdp", splits, graph, CFG, Path("unused"), seed=0)
+        fit_and_evaluate("scsa", splits, graph, CFG, Path("unused"), seed=0)
+
+
+def test_bn_hdp_end_to_end(tmp_path):
+    splits = chain_splits()
+    graph = build_graph("bn_hdp", splits, CFG, np.random.default_rng(0))
+    metrics = fit_and_evaluate("bn_hdp", splits, graph, CFG, tmp_path, seed=0)
+
+    nll = np.load(tmp_path / "per_column_nll.npy")
+    assert nll.shape == (len(splits.test), 4)
+    assert np.isclose(nll.sum(1).mean(), metrics["nll_test"])
+    assert set(metrics["hparams"]["concentrations"]) == set(splits.columns)
+    assert metrics["nll_val"] == min(h["nll_val"] for h in metrics["hparam_search"])
+    assert metrics["nll_test"] < 2.6  # same bound as bn_cpt: true entropy ~2.4 nats/row
 
 
 def test_bn_cpt_end_to_end(tmp_path):
@@ -127,6 +143,8 @@ def test_bn_cpt_end_to_end(tmp_path):
     nll = np.load(tmp_path / "per_column_nll.npy")
     assert nll.shape == (len(splits.test), 4)
     assert np.isclose(nll.sum(1).mean(), metrics["nll_test"])
+    train_nll = np.load(tmp_path / "train_per_column_nll.npy")
+    assert np.isclose(train_nll.sum(1).mean(), metrics["nll_train"])
     assert len(metrics["hparam_search"]) == len(CFG["baselines"]["bn_cpt"]["smoothing_grid"])
     assert metrics["nll_val"] == min(h["nll_val"] for h in metrics["hparam_search"])
     # True entropy of the chain is ~2.4 nats/row (marginal ~4.0); counts on 1k rows get close.

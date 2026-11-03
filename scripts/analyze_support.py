@@ -23,6 +23,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 from tabstruct.eval.support_analysis import (
+    BUCKETS,
     analyze_group,
     average_random_dags,
     bucket_comparisons,
@@ -77,8 +78,8 @@ def main() -> None:
         print(shown.to_string(index=False))
         print("\nTest cells per bucket (seed mean):")
         counts = tables["cells"][tables["cells"]["variant"] == "bn"]
-        print(counts.pivot_table(index=["dataset", "n"], columns="bucket", values="count_test")
-              .reindex(columns=list(dict.fromkeys(counts["bucket"]))).round(0).to_string())
+        print(counts.pivot_table(index=["dataset", "n"], columns="bucket", values="count_test",
+                                 sort=False).reindex(columns=BUCKETS).round(0).to_string())
         print("\nLoss-based MI AUC by row bucket (min_j support; 0.5 = no signal):")
         mi_shown = mi[mi["variant"].isin(SHOWN)]
         print(mi_shown.pivot_table(index=["dataset", "n", "variant"], columns="bucket", values="mean",

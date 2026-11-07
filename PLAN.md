@@ -191,11 +191,12 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
 
 ## Phase 1 — Stage 1: graph study, RQ1–RQ2 (Nov 3 – Nov 6)
 
-- [ ] Variants: `full_prefix`, `bn`, `random_dag × 5`, `true_dag` (bnlearn),
+- [x] Variants: `full_prefix`, `bn`, `random_dag × 5`, `true_dag` (bnlearn),
       `marginal` (empty graph, floor reference).
-- [ ] Grid: Adult × {500, 1k, 5k, full}; CHILD/INSURANCE/ALARM × {500, 1k, 5k};
+- [x] Grid: Adult × {500, 1k, 5k, full}; CHILD/INSURANCE/ALARM × {500, 1k, 5k};
       5 seeds each (seed changes the training subset, BN, random DAGs and init).
-- [ ] Classical baselines with likelihoods, on the same splits:
+      Complete (2026-11-06): every (dataset, n, variant) has 5 seeds.
+- [x] Classical baselines with likelihoods, on the same splits:
   - [x] BN with Laplace / BDeu-smoothed CPTs (pgmpy `BayesianEstimator`).
         `baselines/bn_cpt.py` counts CPTs with numpy (tested equal to pgmpy's
         `BayesianEstimator` to 1e-10). Smoothing (BDeu ess ∈ {0.1, 1, 10, 100} or K2/Laplace)
@@ -221,7 +222,7 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
         CHILD 500 12.705 → 12.698, 5k equal; INSURANCE 500 14.404 → 14.367, 5k 13.273 → 13.272;
         ALARM 500 11.450 → 11.493 (backing off to the marginal hurts ALARM's near-deterministic
         CPTs with rare parent configurations), 5k equal. Fits in seconds.
-- [ ] Analysis:
+- [x] Analysis:
   - **RQ1:** `bn − full_prefix` test NLL, per (dataset, n), mean ± 95% CI over seeds.
   - **RQ2:** `bn − random_dag` (average over the 5 random DAGs per seed). If BN ≈ random,
         the gain is sparsity; if BN ≪ random, edges are informative. On bnlearn also
@@ -241,6 +242,19 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
     −0.48 (5/5): correct sparse structure does beat the full prefix. Ranking:
     true_dag < full_prefix < bn ≪ random_dag. `bn ≈ bn_cpt` (within 0.03): the neural
     model matches counting on the same graph, so this is the graph, not training.
+  - *Results, full grid, 5 seeds (2026-11-06), mean ± 95% CI (seeds favouring a):*
+    **RQ1 stays negative at n ≥ 5k, no crossover.** `bn − full_prefix`: Adult +0.60 ± 0.06
+    (5k) / +0.44 ± 0.04 (full), 0/5; CHILD 5k −0.01 ± 0.05 (tie); INSURANCE 5k
+    +0.17 ± 0.08 (0/5); ALARM 5k +0.07 ± 0.02 (0/5). The bnlearn gap shrinks with n but
+    does not reverse. **RQ2 does not shrink with n:** `bn − random_dag` −2.2 to −2.9 (Adult),
+    −3.1 (CHILD), −5.6 (INSURANCE), −7.4 (ALARM) at every n, 5/5. **Structure-learning
+    error closes with n:** `bn − true_dag` n = 500 → 1k → 5k: CHILD +0.37 → +0.19 → +0.05,
+    INSURANCE +0.90 → +0.48 → +0.28, ALARM +0.77 → +0.33 → +0.12. `true_dag −
+    full_prefix_trueorder` is negative at every n (5/5) but shrinks to −0.02 to −0.09 at 5k:
+    correct sparsity matters most at small n. At 5k, excess test NLL over the true BN is
+    0.04 / 0.07 / 0.06 (`true_dag`, CHILD / INSURANCE / ALARM). `bn − bn_cpt` ≤ 0.03 and
+    `bn_hdp − bn_cpt` ≤ 0.05 everywhere. Train − test NLL gap at n = 500: `full_prefix`
+    0.64–1.27, `bn` 0.13–0.54; at 5k: 0.09–0.22 vs ≤ 0.03.
 - [x] Figure: NLL vs n, one line per variant, per dataset (`stage1_nll_vs_n.{pdf,png}`).
 
 ## Phase 2 — Stage 2: support analysis, RQ3 (Nov 5 – Nov 8)
@@ -276,7 +290,45 @@ So val NLL is not a reliable estimate at small n; report test NLL only.
       AUC of training rows (members) vs test rows (non-members) scored by −row NLL,
       per row bucket of `min_j s_{j,1}` (training rows LOO). Under `s_{j,2}` the row
       minimum is almost always 0, so that view's row-level MI is degenerate.
-- [ ] Run on the Stage 1 grid and fill in the go/no-go below.
+- [x] Run on the Stage 1 grid and fill in the go/no-go below.
+      *Results (2026-11-06), full Stage 1 grid, 5 seeds; per-cell NLL differences
+      (nats per test cell), mean ± 95% CI:*
+  - **`s_{j,1}`: BN wins where parent support is low, full prefix wins in high.**
+    ≥ 97% of test cells are high (≥ 20). Cells per seed below 20 at n ≤ 1k: zero 10–100,
+    low 37–640, medium 1,250–6,800 (1–3% of cells); at 5k, ≤ 740 (< 0.3%). Medium
+    (5–19), well powered: `bn − full_prefix` −0.02 to −0.07, mostly 4–5/5 seeds (e.g.
+    INSURANCE-1k −0.053 ± 0.027, 5/5). Low: same direction on ALARM / INSURANCE / Adult
+    (−0.11 to −0.87, wide CIs); CHILD low is positive but has only 37–87 cells. High:
+    full prefix wins slightly (Adult +0.04 to +0.05, bnlearn +0.00 to +0.015, 0/5).
+    Because the low-support cells are rare, the row-level ranking does not change.
+  - **`s_{j,2}` buckets spread out** (zero 18–52% of cells). `bn − full_prefix` is
+    positive in every bucket on Adult and largest where full-prefix support is zero
+    (+0.05 to +0.08 in zero/low/medium vs +0.01 to +0.02 in high, 0/5); ≈ 0 in every
+    bucket on bnlearn (|diff| ≤ 0.02). The neural full-prefix model does not degrade on
+    unseen prefixes the way a count table would. Not a contradiction of the `s_{j,1}` view:
+    the prefix contains the parents, so `s_{j,2} ≤ s_{j,1}`, and low-`s_{j,1}` cells are a
+    small subset of low-`s_{j,2}` cells. A rare *parent configuration* calls for back-off;
+    an unseen prefix alone does not, so the SCSA gate should rely mainly on `s_{j,1}`.
+    `true_dag − full_prefix_trueorder` wins
+    in every bucket (5/5), slightly more in zero (ALARM-500 −0.025 vs −0.005 in high), but
+    the per-cell effect is small.
+  - **Vulnerability:** Spearman(row `min_j s_{j,1}`, Meeus score) −0.45 to −0.74, CI
+    ≤ ±0.11, every (dataset, n); −0.26 to −0.87 under `s_{j,2}`. Caveat: both measure how
+    isolated a row is among training rows, so part of this correlation holds by construction.
+  - **Loss-based MI by `s_{j,1}` row bucket:** AUC rises as support falls. `full_prefix`:
+    medium 0.53–0.67 vs high 0.50–0.59; `bn`: medium 0.50–0.60 vs high 0.49–0.52. Zero/low
+    buckets hold 0–44 members per seed, so their AUCs (up to 0.75–1.0) have CIs of
+    ±0.1 to ±0.8. `full_prefix` has higher MI AUC than `bn` in every bucket at n ≤ 1k
+    (e.g. Adult-500 high 0.59 vs 0.52), in line with its 2–4× larger train − test gap.
+  - **Go/no-go (2026-11-06): go, SCSA is the headline, motivated by privacy.** Condition 1
+    holds in the pre-registered `s_{j,1}` view (BN wins in medium/low, full prefix in high,
+    mainly at n ≤ 1k); condition 2 holds (vulnerability and MI rise as support falls).
+    Because low-`s_{j,1}` cells are 1–3% of cells, SCSA's expected NLL gain is small; the
+    case for it is privacy. Full prefix wins NLL but has a 2–4× larger train − test gap and
+    higher MI AUC, and the rows at risk are the low-support ones, exactly where BN
+    conditionals are also better. RQ4 framing: route low-support cells to BN/marginal
+    conditionals to lower MI risk (DOMIAS, loss-based) at no or small NLL cost versus full
+    prefix. The controlled graph study (RQ1–RQ2) stays as the first contribution.
 
 ## Mid-term report (due ~Nov 9)
 
